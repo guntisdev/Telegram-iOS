@@ -39,6 +39,8 @@ public final class HLSVideoContent: UniversalVideoContent {
         self.enableSound = enableSound
         self.baseRate = baseRate
         self.fetchAutomatically = fetchAutomatically
+        print(">>>>>>>>>>>> HLSVideoContent init")
+//        print(streamVideo, loopVideo, enableSound, baseRate, fetchAutomatically)
     }
     
     public func makeContentNode(accountId: AccountRecordId, postbox: Postbox, audioSession: ManagedAudioSession) -> UniversalVideoContentNode & ASDisplayNode {
@@ -101,6 +103,7 @@ private final class HLSVideoContentNode: ASDisplayNode, UniversalVideoContentNod
                 playlistString.append("#EXT-X-STREAM-INF:BANDWIDTH=\(bandwidth),RESOLUTION=\(width)x\(height)\n")
                 playlistString.append("hls_level_\(quality).m3u8\n")
             }
+//            print(playlistString)
             return .single(playlistString)
         }
         
@@ -281,6 +284,8 @@ private final class HLSVideoContentNode: ASDisplayNode, UniversalVideoContentNod
     private var player: AVPlayer?
     private let playerNode: ASDisplayNode
     
+    private var gplayer: GPlayer?
+    
     private var loadProgressDisposable: Disposable?
     private var statusDisposable: Disposable?
     
@@ -336,8 +341,17 @@ private final class HLSVideoContentNode: ASDisplayNode, UniversalVideoContentNod
         }
         
         self.playerNode = ASDisplayNode()
+//        self.playerNode.setLayerBlock({
+//            return AVPlayerLayer(player: player)
+//        })
+
+        let manifestUrl = URL(string: "http://127.0.0.1:8016/14370806578394063163_5150045347048850358/master.m3u8")!
+        self.gplayer = GPlayer(url: manifestUrl)
+        let videoCanvasView = VideoCanvasView(frame: .zero)
+        self.gplayer!.setDrawableView(videoCanvasView)
+        
         self.playerNode.setLayerBlock({
-            return AVPlayerLayer(player: player)
+            return videoCanvasView.layer
         })
         
         self.intrinsicDimensions = fileReference.media.dimensions?.cgSize ?? CGSize(width: 480.0, height: 320.0)
@@ -422,12 +436,18 @@ private final class HLSVideoContentNode: ASDisplayNode, UniversalVideoContentNod
                         return
                     }
                     
+                    print("------------- before fetch")
+                    print("playerSource.id", playerSource.id)
+//                    let manifestUrl = URL(string: "http://127.0.0.1:\(SharedHLSServer.shared.port)/\(playerSource.id)/master.m3u8")!
+//                    self.gplayer!.setManifestUrl(manifestUrl)
+                    
                     let playerItem: AVPlayerItem
                     let assetUrl = "http://127.0.0.1:\(SharedHLSServer.shared.port)/\(playerSource.id)/master.m3u8"
                     #if DEBUG
                     print("HLSVideoContentNode: playing \(assetUrl)")
                     #endif
                     playerItem = AVPlayerItem(url: URL(string: assetUrl)!)
+//                    print(">>>url>>>>", assetUrl, URL(string: assetUrl)!)
                     
                     if #available(iOS 14.0, *) {
                         playerItem.startsOnFirstEligibleVariant = true
@@ -557,7 +577,7 @@ private final class HLSVideoContentNode: ASDisplayNode, UniversalVideoContentNod
         guard let player = self.player else {
             return
         }
-        let isPlaying = !player.rate.isZero
+        let isPlaying = self.gplayer!.isPlaying()
         let status: MediaPlayerPlaybackStatus
         if self.isBuffering {
             status = .buffering(initial: false, whilePlaying: isPlaying, progress: 0.0, display: true)
@@ -630,6 +650,16 @@ private final class HLSVideoContentNode: ASDisplayNode, UniversalVideoContentNod
     }
     
     func play() {
+        if !self.gplayer!.isPlaying() {
+            self.gplayer!.play()
+            self.isBuffering = false
+            self.updateStatus()
+        }
+        // HACK prevent original player to play
+        if (self.player != nil) {
+            return;
+        }
+
         assert(Queue.mainQueue().isCurrent())
         if !self.initializedStatus {
             self._status.set(MediaPlayerStatus(generationTimestamp: 0.0, duration: Double(self.approximateDuration), dimensions: CGSize(), timestamp: 0.0, baseRate: self.baseRate, seekId: self.seekId, status: .buffering(initial: true, whilePlaying: true, progress: 0.0, display: true), soundEnabled: true))
